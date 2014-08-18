@@ -1,43 +1,40 @@
 var through = require('through2')
 var merge = require('merge-stream')
-var pumpify = require('pumpify')
+var duplexify = require('duplexify')
+var roundround = require('roundround')
 
 module.exports = concurrent = function(concurrency, userStream) {
   if (concurrency < 2) { return userStream() }
 
   if (userStream()._readableState.objectMode) {
     _through = through.obj
-    _pumpify = pumpify.obj
+    _duplexify = duplexify.obj
   }
   else {
     _through = through
-    _pumpify = pumpify
+    _duplexify = duplexify
   }
 
-  var streams = {}
-  var lastUsedStream = -1
+  var streams = []
 
-  streams[0] = userStream()
-  streams[1] = userStream()
+  streams.push(userStream())
+  streams.push(userStream())
 
   var merged = merge(streams[0], streams[1])
 
   for (var i = 2; i < concurrency; i++) {
-    streams[i] = userStream()
+    streams.push(userStream())
     merged.add(streams[i])
   }
 
+  var rr = roundround(streams)
+
   var entryStream = _through(splitter)
-  var stream = _pumpify(entryStream, merged)
+  var stream = _duplexify(entryStream, merged)
 
   return stream
 
   function splitter(obj, enc, next) {
-    lastUsedStream += 1
-    if (lastUsedStream === concurrency) {
-      lastUsedStream = 0
-    }
-    if (streams[lastUsedStream].write(obj))
-    next()
+    rr().write(obj, next)
   }
 }
